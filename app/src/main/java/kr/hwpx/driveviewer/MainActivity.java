@@ -2,6 +2,7 @@ package kr.hwpx.driveviewer;
 
 import android.annotation.SuppressLint;
 import android.app.Activity;
+import android.content.ClipData;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
@@ -24,10 +25,11 @@ import java.util.Map;
 public class MainActivity extends Activity {
 
     private WebView webView;
-    private boolean pageLoaded = false;
+    private volatile boolean pageLoaded = false;
     private ValueCallback<Uri[]> fileUploadCallback;
     private static final int FILE_PICKER_CODE = 2001;
 
+    private volatile boolean isReadingIntent = false;
     private volatile byte[] pendingBytes = null;
     private volatile String pendingFileName = "구글드라이브_문서.hwpx";
     private volatile String pendingError = null;
@@ -95,7 +97,7 @@ public class MainActivity extends Activity {
             public void onPageFinished(WebView view, String url) {
                 super.onPageFinished(view, url);
                 pageLoaded = true;
-                notifyWebViewIfPending();
+                notifyWebViewBridge();
             }
         });
 
@@ -118,7 +120,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        handleIncomingIntent(getIntent());
+        handleIncomingIntentAsync(getIntent());
         webView.loadUrl("https://appassets.androidplatform.net/assets/viewer.html");
     }
 
@@ -127,10 +129,7 @@ public class MainActivity extends Activity {
         super.onNewIntent(intent);
         setIntent(intent);
         if (intent != null) {
-            handleIncomingIntent(intent);
-            if (pageLoaded) {
-                notifyWebViewIfPending();
-            }
+            handleIncomingIntentAsync(intent);
         }
     }
 
@@ -144,68 +143,88 @@ public class MainActivity extends Activity {
         }
     }
 
-    private void notifyWebViewIfPending() {
-        if (pendingBytes != null || pendingError != null) {
-            webView.post(new Runnable() {
-                @Override
-                public void run() {
-                    webView.evaluateJavascript("window.loadFromAndroidBridge && window.loadFromAndroidBridge();", null);
-                }
-            });
-        }
+    private void notifyWebViewBridge() {
+        if (!pageLoaded || webView == null) return;
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                webView.evaluateJavascript("window.loadFromAndroidBridge && window.loadFromAndroidBridge();", null);
+            }
+        });
     }
 
     @SuppressWarnings("deprecation")
-    private void handleIncomingIntent(Intent incoming) {
-        if (incoming == null) return;
-        String action = incoming.getAction();
-        if (action == null) return;
+    private Uri extractUriFromIntent(Intent incoming) {
+        if (incoming == null) return null;
+        Uri uri = incoming.getData();
+        if (uri != null) return uri;
 
-        Uri targetUri = null;
-        if (Intent.ACTION_VIEW.equals(action)) {
-            targetUri = incoming.getData();
-        } else if (Intent.ACTION_SEND.equals(action)) {
+        if (incoming.hasExtra(Intent.EXTRA_STREAM)) {
             Object streamObj = incoming.getParcelableExtra(Intent.EXTRA_STREAM);
             if (streamObj instanceof Uri) {
-                targetUri = (Uri) streamObj;
+                return (Uri) streamObj;
             }
         }
 
+        ClipData clip = incoming.getClipData();
+        if (clip != null && clip.getItemCount() > 0) {
+            Uri clipUri = clip.getItemAt(0).getUri();
+            if (clipUri != null) return clipUri;
+        }
+        return null;
+    }
+
+    private void handleIncomingIntentAsync(Intent incoming) {
+        final Uri targetUri = extractUriFromIntent(incoming);
         if (targetUri == null) return;
 
-        InputStream is = null;
-        try {
-            String name = queryDisplayName(targetUri);
-            if (name == null || name.trim().isEmpty()) {
-                name = "구글드라이브_문서.hwpx";
+        isReadingIntent = true;
+        pendingBytes = null;
+        pendingError = null;
+        notifyWebViewBridge();
+
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                InputStream is = null;
+                try {
+                    String name = queryDisplayName(targetUri);
+                    if (name == null || name.trim().isEmpty()) {
+                        name = "구글드라이브_문서.hwpx";
+                    }
+                    is = getContentResolver().openInputStream(targetUri);
+                    if (is == null) {
+                        pendingError = "구글 드라이브 파일 스트림을 열 수 없습니다.";
+                        isReadingIntent = false;
+                        notifyWebViewBridge();
+                        return;
+                    }
+                    ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+                    byte[] chunk = new byte[16384];
+                    int nRead;
+                    while ((nRead = is.read(chunk, 0, chunk.length)) != -1) {
+                        buffer.write(chunk, 0, nRead);
+                    }
+                    byte[] bytes = buffer.toByteArray();
+                    if (bytes.length > 0) {
+                        pendingFileName = name;
+                        pendingBytes = bytes;
+                        pendingError = null;
+                    } else {
+                        pendingError = "구글 드라이브 파일 데이터가 비어 있습니다.";
+                    }
+                } catch (Exception e) {
+                    String msg = e.getLocalizedMessage();
+                    pendingError = "구글 드라이브 파일 읽기 실패: " + (msg != null ? msg : "권한 오류");
+                } finally {
+                    isReadingIntent = false;
+                    if (is != null) {
+                        try { is.close(); } catch (Exception ignored) {}
+                    }
+                    notifyWebViewBridge();
+                }
             }
-            is = getContentResolver().openInputStream(targetUri);
-            if (is == null) {
-                pendingError = "구글 드라이브 파일 스트림을 열 수 없습니다.";
-                return;
-            }
-            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-            byte[] chunk = new byte[16384];
-            int nRead;
-            while ((nRead = is.read(chunk, 0, chunk.length)) != -1) {
-                buffer.write(chunk, 0, nRead);
-            }
-            byte[] bytes = buffer.toByteArray();
-            if (bytes.length > 0) {
-                pendingFileName = name;
-                pendingBytes = bytes;
-                pendingError = null;
-            } else {
-                pendingError = "구글 드라이브 파일 데이터가 비어 있습니다.";
-            }
-        } catch (Exception e) {
-            String msg = e.getLocalizedMessage();
-            pendingError = "구글 드라이브 파일 읽기 실패: " + (msg != null ? msg : "권한 오류");
-        } finally {
-            if (is != null) {
-                try { is.close(); } catch (Exception ignored) {}
-            }
-        }
+        }).start();
     }
 
     private String queryDisplayName(Uri uri) {
@@ -236,6 +255,11 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public boolean isNativeApp() {
             return true;
+        }
+
+        @JavascriptInterface
+        public boolean isReadingFile() {
+            return isReadingIntent;
         }
 
         @JavascriptInterface

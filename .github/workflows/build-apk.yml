@@ -34,7 +34,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="v1.2.${{ github.run_number }}-$(date +%s)"
+          TAG="v2.0.${{ github.run_number }}-$(date +%s)"
           gh release create "$TAG" HWPX-Drive-Viewer.apk \
-            --title "HWPX 구글 드라이브 뷰어 APK ($TAG)" \
-            --notes "안드로이드 휴대폰에서 HWPX-Drive-Viewer.apk 파일을 다운로드하여 터치하면 자동 설치됩니다."
+            --title "HWPX 구글 드라이브 뷰어 v2.0 APK ($TAG)" \
+            --notes "구글 드라이브 [연결 앱] 완벽 호환 v2.0 버전입니다. 기존 앱 삭제 후 설치하세요."

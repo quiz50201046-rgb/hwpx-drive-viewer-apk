@@ -22,8 +22,9 @@ echo "Using BUILD_TOOLS:  $BUILD_TOOLS"
 rm -rf build HWPX-Drive-Viewer.apk
 mkdir -p build/compiled_res build/gen build/classes build/dex
 
-echo "[1/6] Compiling drawable resources..."
+echo "[1/6] Compiling drawable & string resources..."
 "$BUILD_TOOLS/aapt2" compile app/src/main/res/drawable/ic_launcher.xml -o build/compiled_res/
+"$BUILD_TOOLS/aapt2" compile app/src/main/res/values/strings.xml -o build/compiled_res/
 
 echo "[2/6] Linking manifest, resources & offline assets..."
 "$BUILD_TOOLS/aapt2" link \

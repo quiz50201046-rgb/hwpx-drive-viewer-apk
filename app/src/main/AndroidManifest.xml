@@ -4,54 +4,87 @@
     <application
         android:allowBackup="true"
         android:icon="@drawable/ic_launcher"
-        android:label="HWPX 드라이브 뷰어"
+        android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
         <activity
             android:name=".MainActivity"
+            android:label="@string/app_name"
             android:exported="true"
-            android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- 모바일 구글 드라이브 앱에서 .hwpx 터치 시 즉시 연결 -->
-            <intent-filter android:label="HWPX 드라이브 뷰어">
+            <!-- 1. 구글 드라이브 연결 앱(Open with): 한글/압축/바이너리 모든 세부 MIME 매칭 (경로 제한 없음) -->
+            <intent-filter android:label="@string/app_name">
                 <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.EDIT" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="content" />
                 <data android:scheme="file" />
                 <data android:mimeType="application/hwp+zip" />
+                <data android:mimeType="application/hwpx" />
+                <data android:mimeType="application/x-hwpx" />
                 <data android:mimeType="application/haansofthwpx" />
                 <data android:mimeType="application/vnd.hancom.hwpx" />
                 <data android:mimeType="application/vnd.hancom.hwpml.pkg" />
-                <data android:mimeType="application/x-hwpx" />
-                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/hwpml+xml" />
+                <data android:mimeType="application/vnd.hancom.hwp" />
+                <data android:mimeType="application/haansofthwp" />
+                <data android:mimeType="application/x-hwp" />
+                <data android:mimeType="application/hwp" />
                 <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip" />
                 <data android:mimeType="application/x-zip-compressed" />
+                <data android:mimeType="application/zip-compressed" />
+                <data android:mimeType="multipart/x-zip" />
+                <data android:mimeType="application/x-compressed" />
+                <data android:mimeType="application/x-compress" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="binary/octet-stream" />
+                <data android:mimeType="application/unknown" />
             </intent-filter>
 
-            <!-- 파일 경로가 .hwpx로 끝나는 모든 URI 매칭 -->
-            <intent-filter android:label="HWPX 드라이브 뷰어">
+            <!-- 2. 구글 드라이브 암호화 URI용 application/* 와일드카드 매칭 (pathPattern 제거로 100% 노출) -->
+            <intent-filter android:label="@string/app_name">
                 <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.EDIT" />
                 <category android:name="android.intent.category.DEFAULT" />
-                <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="content" />
                 <data android:scheme="file" />
-                <data android:host="*" />
+                <data android:mimeType="application/*" />
+            </intent-filter>
+
+            <!-- 3. 비표준 MIME 타입까지 모두 포괄하는 content/file 전용 전체 수용 필터 -->
+            <intent-filter android:label="@string/app_name">
+                <action android:name="android.intent.action.VIEW" />
+                <action android:name="android.intent.action.EDIT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
                 <data android:mimeType="*/*" />
+            </intent-filter>
+
+            <!-- 4. MIME 타입 없이 파일 경로(.hwpx)만 넘기는 로컬 파일 탐색기 대응 -->
+            <intent-filter android:label="@string/app_name">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="file" />
+                <data android:scheme="content" />
+                <data android:host="*" />
                 <data android:pathPattern=".*\\.hwpx" />
                 <data android:pathPattern=".*\\..*\\.hwpx" />
+                <data android:pathPattern=".*\\..*\\..*\\.hwpx" />
                 <data android:pathPattern=".*\\.HWPX" />
             </intent-filter>
 
-            <!-- 구글 드라이브 연결 프로그램 / 공유 수신 -->
-            <intent-filter android:label="HWPX 드라이브 뷰어">
+            <!-- 5. 구글 드라이브 [사본 보내기] 및 카카오톡 공유 수신 -->
+            <intent-filter android:label="@string/app_name">
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/*" />
                 <data android:mimeType="*/*" />
             </intent-filter>
         </activity>
