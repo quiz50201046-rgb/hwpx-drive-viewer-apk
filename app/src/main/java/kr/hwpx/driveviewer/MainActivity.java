@@ -5,7 +5,6 @@ import android.app.Activity;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
-import android.os.Build;
 import android.os.Bundle;
 import android.provider.OpenableColumns;
 import android.webkit.JavascriptInterface;
@@ -16,10 +15,11 @@ import android.webkit.WebResourceResponse;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-import androidx.webkit.WebViewAssetLoader;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.util.HashMap;
+import java.util.Map;
 
 public class MainActivity extends Activity {
 
@@ -40,22 +40,6 @@ public class MainActivity extends Activity {
         webView = new WebView(this);
         setContentView(webView);
 
-        final WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
-            .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
-            .addPathHandler("/pending/", new WebViewAssetLoader.PathHandler() {
-                @Override
-                public WebResourceResponse handle(String path) {
-                    byte[] data = pendingBytes;
-                    if (data == null) return null;
-                    return new WebResourceResponse(
-                        "application/octet-stream",
-                        null,
-                        new ByteArrayInputStream(data)
-                    );
-                }
-            })
-            .build();
-
         WebSettings settings = webView.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);
@@ -68,7 +52,43 @@ public class MainActivity extends Activity {
         webView.setWebViewClient(new WebViewClient() {
             @Override
             public WebResourceResponse shouldInterceptRequest(WebView view, WebResourceRequest request) {
-                return assetLoader.shouldInterceptRequest(request.getUrl());
+                if (request == null || request.getUrl() == null) {
+                    return super.shouldInterceptRequest(view, request);
+                }
+                Uri reqUri = request.getUrl();
+                if ("appassets.androidplatform.net".equals(reqUri.getHost())) {
+                    String path = reqUri.getPath();
+                    Map<String, String> headers = new HashMap<String, String>();
+                    headers.put("Access-Control-Allow-Origin", "*");
+                    headers.put("Cache-Control", "no-store");
+
+                    if (path != null && path.startsWith("/assets/")) {
+                        String assetName = path.substring("/assets/".length());
+                        String mime = "text/html";
+                        if (assetName.endsWith(".js")) mime = "application/javascript";
+                        else if (assetName.endsWith(".css")) mime = "text/css";
+                        try {
+                            InputStream stream = getAssets().open(assetName);
+                            return new WebResourceResponse(mime, "UTF-8", 200, "OK", headers, stream);
+                        } catch (Exception e) {
+                            return null;
+                        }
+                    }
+
+                    if (path != null && path.startsWith("/pending/")) {
+                        byte[] data = pendingBytes;
+                        if (data == null) return null;
+                        return new WebResourceResponse(
+                            "application/octet-stream",
+                            null,
+                            200,
+                            "OK",
+                            headers,
+                            new ByteArrayInputStream(data)
+                        );
+                    }
+                }
+                return super.shouldInterceptRequest(view, request);
             }
 
             @Override
@@ -82,7 +102,7 @@ public class MainActivity extends Activity {
         webView.setWebChromeClient(new WebChromeClient() {
             @Override
             public boolean onShowFileChooser(
-                WebView webView,
+                WebView view,
                 ValueCallback<Uri[]> filePathCallback,
                 FileChooserParams fileChooserParams
             ) {
@@ -145,48 +165,53 @@ public class MainActivity extends Activity {
         if (Intent.ACTION_VIEW.equals(action)) {
             targetUri = incoming.getData();
         } else if (Intent.ACTION_SEND.equals(action)) {
-            if (Build.VERSION.SDK_INT >= 33) {
-                targetUri = incoming.getParcelableExtra(Intent.EXTRA_STREAM, Uri.class);
-            } else {
-                targetUri = incoming.getParcelableExtra(Intent.EXTRA_STREAM);
+            Object streamObj = incoming.getParcelableExtra(Intent.EXTRA_STREAM);
+            if (streamObj instanceof Uri) {
+                targetUri = (Uri) streamObj;
             }
         }
 
         if (targetUri == null) return;
 
+        InputStream is = null;
         try {
             String name = queryDisplayName(targetUri);
             if (name == null || name.trim().isEmpty()) {
                 name = "구글드라이브_문서.hwpx";
             }
-            try (InputStream is = getContentResolver().openInputStream(targetUri)) {
-                if (is == null) {
-                    pendingError = "구글 드라이브 파일 스트림을 열 수 없습니다.";
-                    return;
-                }
-                ByteArrayOutputStream buffer = new ByteArrayOutputStream();
-                byte[] chunk = new byte[16384];
-                int nRead;
-                while ((nRead = is.read(chunk, 0, chunk.length)) != -1) {
-                    buffer.write(chunk, 0, nRead);
-                }
-                byte[] bytes = buffer.toByteArray();
-                if (bytes.length > 0) {
-                    pendingFileName = name;
-                    pendingBytes = bytes;
-                    pendingError = null;
-                } else {
-                    pendingError = "구글 드라이브 파일 데이터가 비어 있습니다.";
-                }
+            is = getContentResolver().openInputStream(targetUri);
+            if (is == null) {
+                pendingError = "구글 드라이브 파일 스트림을 열 수 없습니다.";
+                return;
+            }
+            ByteArrayOutputStream buffer = new ByteArrayOutputStream();
+            byte[] chunk = new byte[16384];
+            int nRead;
+            while ((nRead = is.read(chunk, 0, chunk.length)) != -1) {
+                buffer.write(chunk, 0, nRead);
+            }
+            byte[] bytes = buffer.toByteArray();
+            if (bytes.length > 0) {
+                pendingFileName = name;
+                pendingBytes = bytes;
+                pendingError = null;
+            } else {
+                pendingError = "구글 드라이브 파일 데이터가 비어 있습니다.";
             }
         } catch (Exception e) {
             String msg = e.getLocalizedMessage();
             pendingError = "구글 드라이브 파일 읽기 실패: " + (msg != null ? msg : "권한 오류");
+        } finally {
+            if (is != null) {
+                try { is.close(); } catch (Exception ignored) {}
+            }
         }
     }
 
     private String queryDisplayName(Uri uri) {
-        try (Cursor cursor = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null)) {
+        Cursor cursor = null;
+        try {
+            cursor = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME}, null, null, null);
             if (cursor != null && cursor.moveToFirst()) {
                 int idx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME);
                 if (idx >= 0) {
@@ -194,7 +219,12 @@ public class MainActivity extends Activity {
                     if (name != null && !name.trim().isEmpty()) return name;
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+        } finally {
+            if (cursor != null) {
+                try { cursor.close(); } catch (Exception ignored) {}
+            }
+        }
         String last = uri.getLastPathSegment();
         if (last != null && last.contains("/")) {
             return last.substring(last.lastIndexOf('/') + 1);
